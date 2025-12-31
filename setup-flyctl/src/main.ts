@@ -22,17 +22,40 @@ async function run() {
 }
 
 async function resolveVersion(version: string) {
-  const res = await client.get(
-    `https://api.fly.io/app/flyctl_releases/${PLATFORM}/${ARCHITECTURE}/${version}`,
-  );
-  const body = await res.readBody();
-  if (!res.message.statusCode || res.message.statusCode >= 400)
-    throw new Error(body);
-  const matches = body.match(
-    /superfly\/flyctl\/releases\/download\/v(\d+\.\d+\.\d+)/,
-  );
-  const resolvedVersion = matches?.[1] ? matches[1] : version;
-  return { url: body, resolvedVersion };
+  // Use forked repository for releases
+  let resolvedVersion = version;
+  let url: string;
+
+  if (version === "latest") {
+    // Get the latest release from the forked repository
+    const res = await client.get(
+      "https://api.github.com/repos/yikart/flyctl/releases/latest",
+    );
+    const body = await res.readBody();
+    if (!res.message.statusCode || res.message.statusCode >= 400)
+      throw new Error(body);
+    const release = JSON.parse(body);
+    resolvedVersion = release.tag_name.replace(/^v/, "");
+
+    // Find the appropriate asset for the platform and architecture
+    const assetName = getAssetName(resolvedVersion);
+    const asset = release.assets.find((a: any) => a.name === assetName);
+    if (!asset) throw new Error(`No asset found for ${PLATFORM}/${ARCHITECTURE}`);
+    url = asset.browser_download_url;
+  } else {
+    // Use specific version
+    resolvedVersion = version;
+    url = `https://github.com/yikart/flyctl/releases/download/v${version}/${getAssetName(version)}`;
+  }
+
+  return { url, resolvedVersion };
+}
+
+function getAssetName(version: string): string {
+  if (PLATFORM === "Windows") {
+    return `flyctl_${version}_Windows_${ARCHITECTURE}.zip`;
+  }
+  return `flyctl_${version}_${PLATFORM}_${ARCHITECTURE}.tar.gz`;
 }
 
 async function installFlyctl(url: string, resolvedVersion: string) {

@@ -28895,13 +28895,36 @@ async function run() {
     }
 }
 async function resolveVersion(version) {
-    const res = await client.get(`https://api.fly.io/app/flyctl_releases/${constants_js_1.PLATFORM}/${constants_js_1.ARCHITECTURE}/${version}`);
-    const body = await res.readBody();
-    if (!res.message.statusCode || res.message.statusCode >= 400)
-        throw new Error(body);
-    const matches = body.match(/superfly\/flyctl\/releases\/download\/v(\d+\.\d+\.\d+)/);
-    const resolvedVersion = matches?.[1] ? matches[1] : version;
-    return { url: body, resolvedVersion };
+    // Use forked repository for releases
+    let resolvedVersion = version;
+    let url;
+    if (version === "latest") {
+        // Get the latest release from the forked repository
+        const res = await client.get("https://api.github.com/repos/yikart/flyctl/releases/latest");
+        const body = await res.readBody();
+        if (!res.message.statusCode || res.message.statusCode >= 400)
+            throw new Error(body);
+        const release = JSON.parse(body);
+        resolvedVersion = release.tag_name.replace(/^v/, "");
+        // Find the appropriate asset for the platform and architecture
+        const assetName = getAssetName(resolvedVersion);
+        const asset = release.assets.find((a) => a.name === assetName);
+        if (!asset)
+            throw new Error(`No asset found for ${constants_js_1.PLATFORM}/${constants_js_1.ARCHITECTURE}`);
+        url = asset.browser_download_url;
+    }
+    else {
+        // Use specific version
+        resolvedVersion = version;
+        url = `https://github.com/yikart/flyctl/releases/download/v${version}/${getAssetName(version)}`;
+    }
+    return { url, resolvedVersion };
+}
+function getAssetName(version) {
+    if (constants_js_1.PLATFORM === "Windows") {
+        return `flyctl_${version}_Windows_${constants_js_1.ARCHITECTURE}.zip`;
+    }
+    return `flyctl_${version}_${constants_js_1.PLATFORM}_${constants_js_1.ARCHITECTURE}.tar.gz`;
 }
 async function installFlyctl(url, resolvedVersion) {
     const downloadedPath = await toolCache.downloadTool(url);
